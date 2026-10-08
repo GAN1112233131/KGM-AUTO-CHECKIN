@@ -9,12 +9,14 @@ test('无渠道配置显式返回未配置', async () => {
 test('推送业务失败可被检测，网络请求有超时', async () => {
   process.env.DINGTALK_BOT_KEY = 'fake-notification-key'
   const originalFetch = globalThis.fetch
+  const originalLog = console.log
+  console.log = (...args) => { if (!String(args[0]).startsWith('::warning::')) originalLog(...args) }
   globalThis.fetch = async (url, options) => {
     assert.ok(options.signal instanceof AbortSignal)
     return {ok:true,json:async()=>({errcode:310000,errmsg:'invalid fake-notification-key'})}
   }
   try { assert.deepEqual(await sendNotify('test','test'),{configured:1,success:0,fail:1}) }
-  finally { globalThis.fetch = originalFetch; delete process.env.DINGTALK_BOT_KEY }
+  finally { globalThis.fetch = originalFetch; console.log = originalLog; delete process.env.DINGTALK_BOT_KEY }
 })
 test('已知凭证在异常字符串与嵌套对象中被隐藏', () => {
   registerSensitiveValues(['fake-account-token'])

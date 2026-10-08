@@ -36,6 +36,8 @@ test('列表翻页且 API 失败不伪装为今日成功', async () => {
 test('API 故障不阻断原计划，但阻止不确定的补偿和验证', async () => {
   const dir = mkdtempSync(join(tmpdir(),'kgm-schedule-test-'))
   const originalFetch = globalThis.fetch
+  const originalLog = console.log
+  console.log = (...args) => { if (!String(args[0]).startsWith('::warning::')) originalLog(...args) }
   const keys = ['SCHEDULE_CRON','VALIDATE_ONLY','GITHUB_OUTPUT','GITHUB_STEP_SUMMARY']
   const saved = keys.map(key => process.env[key])
   globalThis.fetch = async () => ({ok:false,status:503})
@@ -53,6 +55,7 @@ test('API 故障不阻断原计划，但阻止不确定的补偿和验证', asyn
     await assert.rejects(preflight(), /已停止/)
   } finally {
     globalThis.fetch = originalFetch
+    console.log = originalLog
     keys.forEach((key,i) => saved[i] === undefined ? delete process.env[key] : process.env[key] = saved[i])
     rmSync(dir,{recursive:true,force:true})
   }
