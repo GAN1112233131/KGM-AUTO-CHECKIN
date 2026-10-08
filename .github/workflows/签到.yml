@@ -1,11 +1,21 @@
 name: 签到
 on:
   workflow_dispatch:
+    inputs:
+      validate_only:
+        description: '仅运行无凭证测试，不领取 VIP'
+        type: boolean
+        default: false
   schedule:
     - cron: '10 17 * * *'
+    # 北京时间 03:37 补偿；今日已成功则跳过。Actions 仍不保证准点。
+    - cron: '37 19 * * *'
 permissions:
   contents: read
-  actions: write
+  actions: read
+concurrency:
+  group: kgm-checkin-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -21,8 +31,21 @@ jobs:
           cache: 'npm'
           cache-dependency-path: ./api/package-lock.json
 
+      - name: 无凭证验证
+        if: ${{ inputs.validate_only }}
+        run: node --test tests/*.test.js
+
+      - name: 调度与防重复检查
+        id: schedule
+        run: node scripts/schedule.js
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SCHEDULE_CRON: ${{ github.event.schedule }}
+          VALIDATE_ONLY: ${{ inputs.validate_only }}
+
       - name: 缓存依赖
         id: cache-npm
+        if: ${{ !inputs.validate_only && steps.schedule.outputs.skip != 'true' }}
         uses: actions/cache@v6
         with:
           path: ./api/node_modules
@@ -32,9 +55,10 @@ jobs:
 
       - name: 安装依赖
         run: npm run install
-        if: ${{ steps.cache-npm.outputs.cache-hit != 'true' }}
+        if: ${{ !inputs.validate_only && steps.schedule.outputs.skip != 'true' && steps.cache-npm.outputs.cache-hit != 'true' }}
 
       - name: 执行签到
+        if: ${{ !inputs.validate_only && steps.schedule.outputs.skip != 'true' }}
         run: npm run main
         env:
           USERINFO: ${{ secrets.USERINFO }}

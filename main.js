@@ -1,17 +1,15 @@
 import { printBlue, printGreen, printMagenta, printRed, printYellow } from "./utils/colorOut.js";
 import { hasSecretWriteToken, setRepoSecret } from "./utils/githubSecrets.js";
-import { maskDisplayName, maskIdentifier, sanitizeForLog, summarizeResponse } from "./utils/safeLog.js";
+import { maskDisplayName, maskIdentifier, registerSensitiveValues, sanitizeForLog, summarizeResponse } from "./utils/safeLog.js";
 import { sendNotify } from "./utils/notify.js";
 import { close_api, delay, send, startService, waitForApi } from "./utils/utils.js";
+import { loadUserinfo, saveUserinfoFile } from "./utils/runtimeUserinfo.js";
+import { pathToFileURL } from "node:url";
 
 async function main() {
 
-  const USERINFO = process.env.USERINFO
   let needRefresh = false
-  if (!USERINFO) {
-    throw new Error("未配置")
-  }
-  const userinfo = JSON.parse(USERINFO)
+  const userinfo = loadUserinfo()
 
   // 启动服务并等待就绪（避免冷启动竞态导致首个请求失败）
   const api = startService()
@@ -26,9 +24,9 @@ async function main() {
   // 服务器时间比国内慢8小时
   today.setTime(today.getTime() + 8 * 60 * 60 * 1000)
   //日期
-  const DD = String(today.getDate()).padStart(2, '0'); // 获取日
-  const MM = String(today.getMonth() + 1).padStart(2, '0'); //获取月份，1 月为 0
-  const yyyy = today.getFullYear(); // 获取年份
+  const DD = String(today.getUTCDate()).padStart(2, '0'); // 与主机时区无关的北京时间
+  const MM = String(today.getUTCMonth() + 1).padStart(2, '0');
+  const yyyy = today.getUTCFullYear();
   const date = yyyy + '-' + MM + '-' + DD
 
   const errorMsg = {}
@@ -62,16 +60,18 @@ async function main() {
           continue
         }
         const safeNickname = maskDisplayName(userDetail.data.nickname)
+        let accountHasError = false
         printMagenta(`账号 ${safeNickname} 开始领取VIP...`)
 
         // 周日刷新token
-        if (today.getDay() === 0) {
+        if (today.getUTCDay() === 0) {
           const refreshToken = await send(`/login/token?timestrap=${Date.now()}`, "POST", headers)
           if (refreshToken?.status == 1) {
             if (refreshToken?.data?.token !== user.token) {
               needRefresh = true
               printYellow(`账号 ${safeNickname} 需要刷新token`)
               user.token = refreshToken.data.token
+              registerSensitiveValues([user.token])
               // 用新 token 重建本次请求的 headers，使后续听歌/VIP 领取使用刷新后的凭证
               headers = { 'cookie': 'token=' + user.token + '; userid=' + user.userid }
             }
@@ -95,6 +95,7 @@ async function main() {
           printRed("听歌领取失败")
           listenStatus = '失败'
           hasError = true
+          accountHasError = true
         }
 
         printYellow("开始领取VIP...")
@@ -116,6 +117,7 @@ async function main() {
             printRed(`第${i}次领取失败`)
             errorMsg[`${safeNickname} ad`] = summarizeResponse(ad)
             hasError = true
+            accountHasError = true
             break
           }
         }
@@ -130,11 +132,12 @@ async function main() {
           printRed("获取失败\n")
           errorMsg[`${safeNickname} vip_details`] = summarizeResponse(vip_details)
           hasError = true
+          accountHasError = true
         }
 
         notifyResults.push({
           nickname: safeNickname,
-          status: listenStatus === '失败' || claimCount === 0 ? '部分失败' : '成功',
+          status: accountHasError ? '部分失败' : '成功',
           listen: listenStatus,
           vipClaim: `${claimCount}/${claimTotal}`,
           vipExpiry,
@@ -142,15 +145,16 @@ async function main() {
         })
       } catch (err) {
         const safeUserId = maskIdentifier(user.userid || '未知')
-        printRed(`账号 ${safeUserId} 处理异常：${err && err.message ? err.message : String(err)}`)
-        errorMsg[safeUserId] = { msg: '处理异常', error: err && err.message ? err.message : String(err) }
+        const safeError = sanitizeForLog(err && err.message ? err.message : String(err))
+        printRed(`账号 ${safeUserId} 处理异常：${safeError}`)
+        errorMsg[safeUserId] = { msg: '处理异常', error: safeError }
         notifyResults.push({
           nickname: safeUserId,
           status: '失败',
           listen: '异常',
           vipClaim: '0/8',
           vipExpiry: '未知',
-          error: err && err.message ? err.message : String(err)
+          error: safeError
         })
         hasError = true
         continue
@@ -164,6 +168,14 @@ async function main() {
   // 更新secret <USERINFO>（使用完整 userinfo 数组，保留所有用户包括过期账号）
   let secretError = null
   if (needRefresh) {
+    if (process.env.USERINFO_FILE) {
+      try {
+        saveUserinfoFile(userinfo)
+        printGreen("本地登录信息刷新成功")
+      } catch (_) {
+        secretError = new Error("本地登录信息保存失败")
+      }
+    }
     if (hasSecretWriteToken()) {
       const userinfoJSON = JSON.stringify(userinfo)
       try {
@@ -174,13 +186,13 @@ async function main() {
         console.dir(sanitizeForLog({ message: error.message }), { depth: null })
         secretError = new Error("secret <USERINFO> token刷新失败")
       }
-    } else {
+    } else if (!process.env.USERINFO_FILE) {
       printYellow("存在账号需要刷新token，但是未配置PAT，未刷新token最多两个月后过期")
     }
   }
 
   // 构建通知内容（放在 secret 更新之后、错误抛出之前，确保始终执行）
-  const title = `酷狗签到${hasError ? '异常' : '成功'} ${date}`
+  const title = `酷狗签到${hasError || secretError ? '异常' : '成功'} ${date}`
   let content = `📅 日期: ${date}\n`
   content += `📊 账号数: ${notifyResults.length}\n`
   const successCount = notifyResults.filter(r => r.status === '成功').length
@@ -201,7 +213,7 @@ async function main() {
   try {
     await sendNotify(title, content)
   } catch (e) {
-    printYellow(`通知发送异常: ${e.message}`)
+    printYellow(`通知发送异常: ${sanitizeForLog(e.message)}`)
   }
 
   if (Object.keys(errorMsg).length > 0) {
@@ -216,4 +228,12 @@ async function main() {
 
 }
 
-main().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1) })
+export { main }
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().then(() => process.exit(0)).catch(() => {
+    // 解析错误和上游异常可能含凭证，详细结果已由上面的脱敏日志记录。
+    console.error("签到失败，请检查脱敏日志和失败提醒")
+    process.exit(1)
+  })
+}

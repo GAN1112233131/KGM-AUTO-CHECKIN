@@ -20,12 +20,21 @@ const SENSITIVE_KEYS = new Set([
 
 const DISPLAY_NAME_KEYS = new Set(["nickname", "username", "display_name", "displayname"]);
 const IDENTIFIER_KEYS = new Set(["userid", "user_id", "uid", "kguid", "kugouid", "t_userid"]);
+const sensitiveValues = new Set();
+
+function registerSensitiveValues(values) {
+  for (const value of values) if (typeof value === 'string' && value.length >= 4) sensitiveValues.add(value);
+}
 
 function normalizeKey(key) {
   return String(key).toLowerCase();
 }
 
 function sanitizeString(value) {
+  const values = [...sensitiveValues, ...Object.entries(process.env)
+    .filter(([key]) => /TOKEN|SECRET|KEY|PASS|COOKIE|USERINFO/.test(key))
+    .map(([, item]) => item)].filter(item => item?.length >= 4).sort((a, b) => b.length - a.length);
+  for (const secret of values) value = value.split(secret).join('[REDACTED]');
   return value
     .replace(/(github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]{20,})/g, "[REDACTED]")
     .replace(/(?<!\d)(1[3-9]\d{9})(?!\d)/g, (phone) => `${phone.slice(0, 2)}*******${phone.slice(-2)}`);
@@ -131,4 +140,4 @@ function shouldPrintSensitiveValue() {
   return raw === "是" || ["true", "1", "yes"].includes(raw)
 }
 
-export { maskDisplayName, maskIdentifier, sanitizeForLog, shouldPrintSensitiveValue, summarizeResponse };
+export { maskDisplayName, maskIdentifier, registerSensitiveValues, sanitizeForLog, shouldPrintSensitiveValue, summarizeResponse };

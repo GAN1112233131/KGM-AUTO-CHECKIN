@@ -1,0 +1,14 @@
+[Unit]
+Description=Kugou check-in at 01:10 Beijing time with retries
+
+[Timer]
+OnCalendar=*-*-* 01:10:00 Asia/Shanghai
+OnCalendar=*-*-* 01:40:00 Asia/Shanghai
+OnCalendar=*-*-* 02:10:00 Asia/Shanghai
+Persistent=true
+AccuracySec=1s
+RandomizedDelaySec=0
+Unit=kgm-checkin.service
+
+[Install]
+WantedBy=timers.target

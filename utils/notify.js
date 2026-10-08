@@ -20,6 +20,7 @@ import crypto from 'node:crypto'
 import tls from 'node:tls'
 import net from 'node:net'
 import { printGreen, printRed, printYellow } from './colorOut.js'
+import { sanitizeForLog } from './safeLog.js'
 
 /* ------------------------------------------------------------------ */
 /*  各渠道发送实现                                                      */
@@ -29,6 +30,7 @@ import { printGreen, printRed, printYellow } from './colorOut.js'
 async function sendWeCom(title, content, key) {
   const url = `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${key}`
   const resp = await fetch(url, {
+    signal: AbortSignal.timeout(15000),
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -52,6 +54,7 @@ async function sendDingTalk(title, content, key, secret) {
     url += `&timestamp=${timestamp}&sign=${encodeURIComponent(sign)}`
   }
   const resp = await fetch(url, {
+    signal: AbortSignal.timeout(15000),
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -64,7 +67,7 @@ async function sendDingTalk(title, content, key, secret) {
   // 误判为发送成功。失败时打印真实原因并返回 false。
   const data = await resp.json().catch(() => null)
   if (!data || data.errcode !== 0) {
-    printRed(`钉钉发送失败: ${data?.errmsg || `HTTP ${resp.status}`}`)
+    printRed(`钉钉发送失败: ${sanitizeForLog(data?.errmsg || `HTTP ${resp.status}`)}`)
     return false
   }
   return true
@@ -74,6 +77,7 @@ async function sendDingTalk(title, content, key, secret) {
 async function sendFeishu(title, content, key) {
   const url = `https://open.feishu.cn/open-apis/bot/v2/hook/${key}`
   const resp = await fetch(url, {
+    signal: AbortSignal.timeout(15000),
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -88,6 +92,7 @@ async function sendFeishu(title, content, key) {
 async function sendYunhu(title, content, key) {
   const url = `https://www.yhchat.com/bot/send?key=${key}`
   const resp = await fetch(url, {
+    signal: AbortSignal.timeout(15000),
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -101,6 +106,7 @@ async function sendYunhu(title, content, key) {
 async function sendServerChan(title, content, sendkey) {
   const url = `https://sctapi.ftqq.com/${sendkey}.send`
   const resp = await fetch(url, {
+    signal: AbortSignal.timeout(15000),
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ title, desp: content }),
@@ -114,6 +120,7 @@ async function sendPushPlus(title, content, token, topic) {
   const body = { token, title, content, template: 'txt' }
   if (topic) body.topic = topic
   const resp = await fetch(url, {
+    signal: AbortSignal.timeout(15000),
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -125,6 +132,7 @@ async function sendPushPlus(title, content, token, topic) {
 async function sendTelegram(title, content, botToken, chatId) {
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`
   const resp = await fetch(url, {
+    signal: AbortSignal.timeout(15000),
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -143,13 +151,14 @@ async function sendBark(title, content, key, group) {
   const params = new URLSearchParams()
   if (group) params.set('group', group)
   const finalUrl = params.toString() ? `${url}?${params}` : url
-  const resp = await fetch(finalUrl)
+  const resp = await fetch(finalUrl, { signal: AbortSignal.timeout(15000) })
   return resp.ok
 }
 
 // 9. Discord Webhook
 async function sendDiscord(title, content, webhookUrl) {
   const resp = await fetch(webhookUrl, {
+    signal: AbortSignal.timeout(15000),
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -386,7 +395,7 @@ async function sendNotify(title, content) {
   }
 
   if (channels.length === 0) {
-    return
+    return { configured: 0, success: 0, fail: 0 }
   }
 
   printYellow(`正在发送通知到 ${channels.length} 个渠道...`)
@@ -403,12 +412,15 @@ async function sendNotify(title, content) {
       success++
     } else {
       const name = r.status === 'fulfilled' ? r.value.name : '未知'
-      const reason = r.status === 'rejected' ? r.reason?.message : 'HTTP错误'
+      // 网络错误可能含机器人 URL 和密钥；只记录渠道与脱敏错误。
+      const reason = r.status === 'rejected' ? sanitizeForLog(r.reason?.message || '请求异常') : '接口返回失败'
       printRed(`  ✗ ${name} 发送失败: ${reason}`)
       fail++
     }
   }
   printYellow(`通知发送完成: ${success} 成功, ${fail} 失败`)
+  if (fail) console.log(`::warning::通知渠道失败 ${fail} 个，请检查推送配置`)
+  return { configured: channels.length, success, fail }
 }
 
 export { sendNotify }

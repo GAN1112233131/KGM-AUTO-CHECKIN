@@ -1,0 +1,23 @@
+name: 调度验证
+on:
+  pull_request:
+  push:
+    branches: ['codex/kgm-reliability-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: 测试签到成功、失败、去重与令牌保存
+        run: node --test tests/*.test.js
+      - name: 验证 systemd 配置
+        run: |
+          systemd-analyze verify deploy/systemd/*.service deploy/systemd/*.timer
+          systemd-analyze calendar '*-*-* 01:10:00 Asia/Shanghai'
