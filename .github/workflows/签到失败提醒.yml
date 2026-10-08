@@ -1,5 +1,6 @@
 name: 签到失败提醒
 on:
+  workflow_dispatch:
   workflow_run:
     workflows: ['签到']
     types: [completed]
@@ -11,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   alert:
-    if: ${{ github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion != 'success' && github.event.workflow_run.conclusion != 'skipped' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion != 'success' && github.event.workflow_run.conclusion != 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -20,6 +21,12 @@ jobs:
         with:
           script: |
             const run = context.payload.workflow_run;
+            if (!run) {
+              const test = await github.rest.issues.create({...context.repo, title: '[测试]酷狗签到失败提醒', body: '失败提醒链路验证，签到未执行。此测试 Issue 将自动关闭。', assignees: [context.repo.owner]});
+              await github.rest.issues.update({...context.repo, issue_number: test.data.number, state: 'closed'});
+              await core.summary.addLink('失败提醒测试 Issue', test.data.html_url).write();
+              return;
+            }
             const title = '酷狗签到运行异常';
             const body = `运行 #${run.run_number} 未正常完成（${run.conclusion}）。\n${run.html_url}\n请查看失败步骤和脱敏日志。`;
             const issues = await github.paginate(github.rest.issues.listForRepo, {...context.repo, state: 'open', creator: 'github-actions[bot]', per_page: 100});
@@ -41,8 +48,8 @@ jobs:
         if: ${{ always() }}
         run: node scripts/notify-failure.js
         env:
-          RUN_URL: ${{ github.event.workflow_run.html_url }}
-          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_URL: ${{ github.event.workflow_run.html_url || format('https://github.com/{0}/actions/runs/{1}', github.repository, github.run_id) }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion || '提醒链路测试，签到未执行' }}
           WECOM_BOT_KEY: ${{ secrets.WECOM_BOT_KEY }}
           DINGTALK_BOT_KEY: ${{ secrets.DINGTALK_BOT_KEY }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}

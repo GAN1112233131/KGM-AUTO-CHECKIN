@@ -37,11 +37,11 @@ jobs:
 
       - name: 调度与防重复检查
         id: schedule
-        if: ${{ !inputs.validate_only }}
         run: node scripts/schedule.js
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SCHEDULE_CRON: ${{ github.event.schedule }}
+          VALIDATE_ONLY: ${{ inputs.validate_only }}
 
       - name: 缓存依赖
         id: cache-npm

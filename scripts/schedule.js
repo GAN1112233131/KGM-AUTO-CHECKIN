@@ -43,18 +43,18 @@ export async function hasCompletedToday(now, env = process.env, get = githubGet)
   throw new Error('运行记录过多，无法安全确认今日签到状态')
 }
 
-async function preflight() {
+export async function preflight() {
   const now = new Date()
   const cron = process.env.SCHEDULE_CRON
   let summary = `北京时间日期：${beijingDay(now)}\n\n`
   if (cron) {
     try {
-    const run = await githubGet(`actions/runs/${process.env.GITHUB_RUN_ID}`)
-    const created = new Date(run.created_at)
-    const delay = Math.max(0, Math.floor((created - latestSlot(created, cron)) / 60000))
-    const queue = Math.max(0, Math.floor((now - created) / 1000))
-    summary += `计划（UTC）：${cron}\n\n触发延迟：约 ${delay} 分钟；创建运行至检查：${queue} 秒。\n\n`
-    if (delay > 60) console.log(`::warning::GitHub 计划触发延迟约 ${delay} 分钟`)
+      const run = await githubGet(`actions/runs/${process.env.GITHUB_RUN_ID}`)
+      const created = new Date(run.created_at)
+      const delay = Math.max(0, Math.floor((created - latestSlot(created, cron)) / 60000))
+      const queue = Math.max(0, Math.floor((now - created) / 1000))
+      summary += `计划（UTC）：${cron}\n\n触发延迟：约 ${delay} 分钟；创建运行至检查：${queue} 秒。\n\n`
+      if (delay > 60) console.log(`::warning::GitHub 计划触发延迟约 ${delay} 分钟`)
     } catch (_) {
       summary += '暂时无法读取触发延迟。\n\n'
     }
@@ -64,7 +64,7 @@ async function preflight() {
     skip = await hasCompletedToday(now)
   } catch (_) {
     // 保持原计划可运行；补偿计划查询失败时停止，避免重复领取。
-    if (cron && cron !== '10 17 * * *') throw new Error('无法确认今日签到状态，补偿执行已停止')
+    if (process.env.VALIDATE_ONLY === 'true' || (cron && cron !== '10 17 * * *')) throw new Error('无法确认今日签到状态，验证或补偿执行已停止')
     console.log('::warning::无法查询今日签到状态，继续原计划或手动签到')
   }
   summary += skip ? '今日签到步骤已成功，跳过重复执行。\n' : '尚未确认今日成功，继续执行签到。\n'

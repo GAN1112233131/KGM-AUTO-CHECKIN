@@ -1,5 +1,4 @@
 import { registerHooks } from 'node:module'
-const scenario = process.env.TEST_SCENARIO
 const RealDate = Date
 globalThis.Date = class extends RealDate {
   constructor(...args) { super(...(args.length ? args : ['2026-10-10T17:20:00Z'])) }
