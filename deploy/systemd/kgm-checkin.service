@@ -1,0 +1,25 @@
+[Unit]
+Description=Kugou daily VIP check-in
+Wants=network-online.target
+After=network-online.target
+OnFailure=kgm-checkin-alert.service
+ConditionPathExists=/etc/kgm-checkin/enable-live
+
+[Service]
+Type=oneshot
+User=kgm-checkin
+Group=kgm-checkin
+WorkingDirectory=/opt/kgm-checkin
+EnvironmentFile=/etc/kgm-checkin/checkin.env
+Environment=HOST=127.0.0.1
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+StateDirectory=kgm-checkin
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/usr/bin/flock -n /var/lib/kgm-checkin/run.lock /usr/bin/env node scripts/run-vps.js
+TimeoutStartSec=30min
+KillMode=control-group
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true

@@ -1,4 +1,5 @@
 import { spawn } from 'child_process'
+import { sanitizeForLog } from './safeLog.js'
 
 /** 延时 */
 function delay(ms) {
@@ -41,7 +42,7 @@ function startService() {
   api.stdout.on('data', () => {})
   api.stderr.on('data', data => {
     const msg = String(data).trim()
-    if (msg) console.log('[api stderr]', msg)
+    if (msg) console.log('[api stderr]', sanitizeForLog(msg))
   })
   api.on('close', code => console.log(`[api] 子进程退出，code=${code}`))
 
