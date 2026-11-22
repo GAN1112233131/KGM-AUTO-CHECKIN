@@ -59,8 +59,7 @@ function printUserinfoFallback(userinfoJSON) {
     printYellow('注意：日志包含登录 token，请用完后删除 Actions 日志')
     printBlue(userinfoJSON)
   } else {
-    printYellow('为避免泄露 token，默认不在日志输出 USERINFO')
-    printYellow('如必须手动复制，请重新运行并将 print_userinfo 选择为 是')
+    throw new Error('USERINFO 未更新。请检查仓库 Secret PAT 的有效期及本仓库 Secrets 写权限，更新后重新登录。')
   }
 }
 
